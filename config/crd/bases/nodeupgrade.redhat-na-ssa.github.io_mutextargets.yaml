@@ -1,0 +1,120 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: mutextargets.nodeupgrade.redhat-na-ssa.github.io
+spec:
+  group: nodeupgrade.redhat-na-ssa.github.io
+  names:
+    kind: MutexTarget
+    listKind: MutexTargetList
+    plural: mutextargets
+    singular: mutextarget
+    categories:
+    - numo
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: Machine Config Pools
+      type: string
+      description: Target MachineConfigPools
+      jsonPath: .spec.machineConfigPools
+    - name: Nodes
+      type: string
+      description: Nodes the target MachineConfigPools select
+      jsonPath: .status.nodes
+    - name: ValidConfig
+      type: string
+      description: Status of the ValidConfig condition
+      jsonPath: .status.conditions[?(@.type=="ValidConfig")].status
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+    schema:
+      openAPIV3Schema:
+        description: |-
+          MutexTarget is a set of existing MachineConfigPools whose nodes are upgraded one at a
+          time, with the MutexRule Jobs run before each node. The operator checks that the pools
+          exist and publishes their nodes in status.nodes. It never changes a pool or a node
+          because of a MutexTarget alone. MutexTargets are only reconciled in the namespace of
+          the operator.
+        type: object
+        required:
+        - spec
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec defines the desired state of MutexTarget.
+            type: object
+            required:
+            - machineConfigPools
+            properties:
+              machineConfigPools:
+                description: |-
+                  Names of existing MachineConfigPools. Their nodes are the target nodes. Each
+                  pool needs a non-empty nodeSelector, and the canary pool of a MutexRunConfig
+                  must not be one of them.
+                type: array
+                minItems: 1
+                items:
+                  type: string
+                  minLength: 1
+                  maxLength: 253
+          status:
+            description: |-
+              Status defines the observed state of MutexTarget. Written by the operator.
+              Conditions: ValidConfig (True/MachineConfigPoolFetchSucceeded or
+              False/MachineConfigPoolFetchFailed), NodeListGathered (True/MachineConfigPoolFetchSucceeded
+              or False/MachineConfigPoolFetchFailed) and Reconciled (False/NamespaceNotAllowed
+              outside the namespace of the operator).
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+            properties:
+              nodes:
+                description: |-
+                  The nodes of the target pools, sorted by name. A node is listed under the
+                  custom pool its labels match, else 'master', else 'worker' (MCO instead keeps
+                  a master and custom pool node in master), so a worker-labelled node in the
+                  canary or another custom pool is not a node of the 'worker' target. Both matchLabels and
+                  matchExpressions of each pool are used. While a MutexRunConfig run has changed
+                  the selector of a pool, the original matchExpressions saved in its
+                  nodeupgrade.redhat-na-ssa.github.io/original-match-expressions annotation are used,
+                  so the list stays the same for the whole run.
+                type: array
+                items:
+                  description: Node name
+                  type: string
+              conditions:
+                description: Conditions, at most one per type, merged by type on every reconcile.
+                type: array
+                items:
+                  type: object
+                  properties:
+                    lastTransitionTime:
+                      description: RFC 3339 UTC time (YYYY-MM-DDTHH:MM:SSZ) at which status, reason or message last changed.
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      description: True, False or Unknown.
+                      type: string
+                    type:
+                      type: string
+    served: true
+    storage: true
+    subresources:
+      status: {}

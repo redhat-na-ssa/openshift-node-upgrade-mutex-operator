@@ -1,0 +1,29 @@
+# Helper ClusterRole for people who view mutexrunconfigs. It is not used by the
+# operator, is not listed in config/rbac/kustomization.yaml and is not
+# shipped in the bundle.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: mutexrunconfig-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: openshift-node-upgrade-mutex-operator
+    app.kubernetes.io/part-of: openshift-node-upgrade-mutex-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: mutexrunconfig-viewer-role
+rules:
+- apiGroups:
+  - nodeupgrade.redhat-na-ssa.github.io
+  resources:
+  - mutexrunconfigs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - nodeupgrade.redhat-na-ssa.github.io
+  resources:
+  - mutexrunconfigs/status
+  verbs:
+  - get

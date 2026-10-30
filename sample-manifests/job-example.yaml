@@ -1,0 +1,134 @@
+# MutexRule label-node, the rule of the Quick start in docs/USAGE.md. Before
+# each node's upgrade its Job labels the node; after the upgrade its cleanup
+# Job removes the label again. docs/JOBS.md explains every field used here.
+#
+# Env: the operator appends NODE_NAME (the node being upgraded, in the
+# cleanup Job too; never the node this pod runs on) and MUTEX_RULE (this
+# MutexRule's name) to the env of every container and initContainer,
+# replacing entries with those names. Use $(NODE_NAME) in command and args,
+# or $NODE_NAME in a shell script. A $(NODE_NAME) inside your own env values
+# is not expanded, because the injected entries come last. The operator also
+# keeps the pod off that node.
+#
+# The Jobs run as a dedicated ServiceAccount that may only read and patch
+# nodes. Do not grant node access to the 'default' ServiceAccount: every pod
+# in the namespace that sets no serviceAccountName would get it.
+#
+# timeoutSeconds is how long the operator waits for each Job in one attempt;
+# the Job keeps running after it. activeDeadlineSeconds, below
+# timeoutSeconds, makes the Job itself fail first, so the next retry starts a
+# new Job instead of waiting for the old one again.
+#
+# Both commands are safe to run again: the label is set with --overwrite, and
+# removing a label the node does not have only prints a message. So the
+# cleanup Job also succeeds when the pre-upgrade Job never ran.
+#
+# Everything is created in the operator's namespace (MutexRules are only
+# reconciled there); replace node-upgrade-mutex-operator if you installed
+# the operator elsewhere. The image is the OpenShift CLI; on a cluster with
+# the internal registry you can use the 'cli' image stream instead
+# (image-registry.openshift-image-registry.svc:5000/openshift/cli:latest),
+# which always matches the cluster version.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mutex-node-labeler
+  namespace: node-upgrade-mutex-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mutex-node-labeler
+rules:
+  # 'oc label node' reads the node, then patches it.
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mutex-node-labeler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mutex-node-labeler
+subjects:
+  - kind: ServiceAccount
+    name: mutex-node-labeler
+    namespace: node-upgrade-mutex-operator
+---
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+kind: MutexRule
+metadata:
+  name: label-node
+  namespace: node-upgrade-mutex-operator
+spec:
+  type: kubernetes
+  jobName: label-node
+  timeoutSeconds: 300
+  jobSpec:
+    backoffLimit: 2
+    activeDeadlineSeconds: 240
+    ttlSecondsAfterFinished: 86400
+    # A pod evicted by a drain elsewhere (other pools upgrade at the same
+    # time) does not count against backoffLimit.
+    podFailurePolicy:
+      rules:
+        - action: Ignore
+          onPodConditions:
+            - type: DisruptionTarget
+    template:
+      spec:
+        serviceAccountName: mutex-node-labeler
+        restartPolicy: Never
+        containers:
+          - name: oc
+            image: registry.redhat.io/openshift4/ose-cli-rhel9:latest
+            command:
+              - oc
+              - label
+              - node
+              - $(NODE_NAME)
+              - example.com/pre-upgrade-done=true
+              - --overwrite
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+  cleanUpJobSpec:
+    backoffLimit: 2
+    activeDeadlineSeconds: 240
+    ttlSecondsAfterFinished: 86400
+    podFailurePolicy:
+      rules:
+        - action: Ignore
+          onPodConditions:
+            - type: DisruptionTarget
+    template:
+      spec:
+        serviceAccountName: mutex-node-labeler
+        restartPolicy: Never
+        containers:
+          - name: oc
+            image: registry.redhat.io/openshift4/ose-cli-rhel9:latest
+            command:
+              - oc
+              - label
+              - node
+              - $(NODE_NAME)
+              - example.com/pre-upgrade-done-
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault

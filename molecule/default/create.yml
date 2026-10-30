@@ -1,0 +1,7 @@
+---
+# The cluster already exists (KUBECONFIG); there is nothing to create.
+- name: Create
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks: []

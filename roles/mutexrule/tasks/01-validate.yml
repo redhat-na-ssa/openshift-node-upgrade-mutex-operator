@@ -1,0 +1,90 @@
+---
+# Validates the jobSpec and the optional cleanUpJobSpec with a server-side
+# dry-run create of a Job: kubernetes.core.k8s in check mode sends the create
+# with dryRun=All (kubernetes python client >= 18.20). The API server applies
+# its real schema, defaulting, admission and RBAC checks for the namespace the
+# Jobs will run in, and nothing is created, changed or deleted.
+# The default authentication is used (in the operator: the ansible-operator
+# proxy kubeconfig; with 'make run': the local kubeconfig).
+- name: Configuration Validation Block
+  block:
+    - name: Check Rule Type
+      ansible.builtin.fail:
+        msg: "spec.type '{{ mutexrule_spec.type | default('') }}' is not supported; only 'kubernetes' is."
+      when: (mutexrule_spec.type | default('')) != "kubernetes"
+
+    - name: Check Job Fields
+      ansible.builtin.fail:
+        msg: "{{ item.msg }}"
+      loop:
+        - msg: spec.jobName is empty.
+          failed: "{{ mutexrule_spec.jobName | default('', true) | length == 0 }}"
+        - msg: spec.jobSpec is not an object.
+          failed: "{{ (mutexrule_spec.jobSpec | default(none)) is not mapping }}"
+        - msg: spec.cleanUpJobSpec is set but is not an object.
+          failed: "{{ mutexrule_spec.cleanUpJobSpec is defined and (mutexrule_spec.cleanUpJobSpec | default(none)) is not mapping }}"
+        - msg: spec.timeoutSeconds must be a positive number of seconds.
+          failed: "{{ mutexrule_spec.timeoutSeconds is defined and not ((mutexrule_spec.timeoutSeconds | string) is match('^[1-9][0-9]*$')) }}"
+      loop_control:
+        label: "{{ item.msg }}"
+      when: item.failed | bool
+
+    - name: Confirm Valid K8s jobSpec
+      kubernetes.core.k8s:
+        api_version: "batch/v1"
+        kind: "Job"
+        generate_name: "{{ mutexrule_spec.jobName }}-"
+        namespace: "{{ mutexrule_job_namespace }}"
+        definition:
+          spec: "{{ mutexrule_spec.jobSpec }}"
+        state: present
+      check_mode: true
+
+    - name: Confirm Valid K8s cleanUpJobSpec
+      kubernetes.core.k8s:
+        api_version: "batch/v1"
+        kind: "Job"
+        generate_name: "cleanup-{{ mutexrule_spec.jobName }}-"
+        namespace: "{{ mutexrule_job_namespace }}"
+        definition:
+          spec: "{{ mutexrule_spec.cleanUpJobSpec }}"
+        state: present
+      check_mode: true
+      when: mutexrule_spec.cleanUpJobSpec is defined
+
+    - name: Report Configuration Results
+      operator_sdk.util.k8s_status:
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
+        kind: MutexRule
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ValidConfig
+            status: "True"
+            reason: ValidConfig
+            message: >-
+              {{ 'jobSpec and cleanUpJobSpec' if mutexrule_spec.cleanUpJobSpec is defined else 'jobSpec' }}
+              passed a server-side dry-run create of a Job in namespace {{ mutexrule_job_namespace }}.
+            lastTransitionTime: "{{ mutexrule_now }}"
+
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        ValidConfig: true
+
+  rescue:
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        ValidConfig: false
+
+    - name: Report Invalid Config
+      operator_sdk.util.k8s_status:
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
+        kind: MutexRule
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ValidConfig
+            status: "False"
+            reason: InvalidConfig
+            message: "{{ mutexrule_failed_msg | truncate(1000) }}"
+            lastTransitionTime: "{{ mutexrule_now }}"

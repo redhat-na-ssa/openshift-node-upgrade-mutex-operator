@@ -1,0 +1,27 @@
+---
+- name: Destroy
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Pick the kind node provider
+      ansible.builtin.include_tasks: tasks/kind_env.yml
+
+    - name: Delete the kind cluster
+      ansible.builtin.command:
+        argv:
+          - "{{ kind }}"
+          - delete
+          - cluster
+          - --name
+          - "{{ kind_cluster_name }}"
+          - --kubeconfig
+          - "{{ kubeconfig }}"
+      environment: "{{ e2e_kind_env }}"
+      changed_when: true
+
+    - name: Remove the saved operator image
+      ansible.builtin.file:
+        path: "{{ image_archive }}"
+        state: absent

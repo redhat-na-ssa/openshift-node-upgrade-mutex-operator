@@ -1,0 +1,24 @@
+---
+# This role is run by ansible-operator (see watches.yaml), not installed from
+# Ansible Galaxy. The image is quay.io/operator-framework/ansible-operator
+# v1.42.3, which ships ansible-core 2.18.
+galaxy_info:
+  role_name: mutexrule
+  author: openshift-node-upgrade-mutex-operator maintainers
+  description: >-
+    Reconciles MutexRule resources for the OpenShift Node Upgrade Mutex Operator:
+    validates the Job specs with a server-side dry-run create and reports the
+    ValidConfig condition.
+  # The repository's license (LICENSE).
+  license: Apache-2.0
+  min_ansible_version: "2.18"
+  galaxy_tags:
+    - openshift
+    - operator
+    - upgrade
+
+dependencies: []
+
+collections:
+  - operator_sdk.util
+  - kubernetes.core

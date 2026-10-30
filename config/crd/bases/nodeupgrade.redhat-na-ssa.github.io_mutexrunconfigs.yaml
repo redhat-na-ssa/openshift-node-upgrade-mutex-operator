@@ -1,0 +1,211 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: mutexrunconfigs.nodeupgrade.redhat-na-ssa.github.io
+spec:
+  group: nodeupgrade.redhat-na-ssa.github.io
+  names:
+    kind: MutexRunConfig
+    listKind: MutexRunConfigList
+    plural: mutexrunconfigs
+    singular: mutexrunconfig
+    categories:
+    - numo
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: Canary
+      type: string
+      description: Canary MachineConfigPool
+      jsonPath: .spec.canary.name
+    - name: Validated
+      type: string
+      description: Status of the ConfigValidated condition
+      jsonPath: .status.conditions[?(@.type=="ConfigValidated")].status
+    - name: Upgrade
+      type: string
+      description: Status of the UpgradeAvailable condition (True while a target node is behind the desired version or still needs its cleanup Jobs)
+      jsonPath: .status.conditions[?(@.type=="UpgradeAvailable")].status
+    - name: Paused
+      type: string
+      description: Status of the TargetPoolsPaused condition (True while this MutexRunConfig keeps pools paused or one of its pools is paused by someone else)
+      jsonPath: .status.conditions[?(@.type=="TargetPoolsPaused")].status
+    - name: Degraded
+      type: string
+      description: Status of the Degraded condition (True when a step failed while this MutexRunConfig holds pools paused or re-pointed)
+      jsonPath: .status.conditions[?(@.type=="Degraded")].status
+    - name: Rules
+      type: string
+      description: Referenced MutexRules
+      jsonPath: .spec.mutexRules[*].name
+      priority: 1
+    - name: Targets
+      type: string
+      description: Referenced MutexTargets
+      jsonPath: .spec.mutexTargets[*].name
+      priority: 1
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+    schema:
+      openAPIV3Schema:
+        description: |-
+          MutexRunConfig ties MutexRules to MutexTargets and names the canary MachineConfigPool
+          that target nodes are upgraded through. While the cluster moves to a new version
+          (ClusterVersion 'version' status.desired.version) and a target node is behind it, the
+          operator pauses the target pools, labels the target nodes, re-points the canary and
+          target pool node selectors, and then, one node at a time, runs the MutexRule Jobs,
+          releases the node into the canary pool, waits until the node has finished its upgrade
+          and runs the cleanup Jobs. At the end it restores the selectors and unpauses the pools it
+          paused. Deleting the MutexRunConfig runs the same restore through its finalizer and
+          runs no Jobs, so if it is deleted during a run, MCO upgrades the remaining nodes
+          without their Jobs.
+          MutexRunConfigs are only reconciled in the namespace of the operator, and all
+          referenced MutexRules and MutexTargets must be in that namespace too.
+        type: object
+        required:
+        - spec
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec defines the desired state of MutexRunConfig.
+            type: object
+            required:
+            - canary
+            - mutexRules
+            - mutexTargets
+            properties:
+              skipTLSVerify:
+                description: |-
+                  Deprecated, no effect: the target version is read from ClusterVersion
+                  status.desired.version and no release image is pulled. Accepted for
+                  compatibility with existing resources.
+                type: boolean
+              canary:
+                description: The existing MachineConfigPool that target nodes are upgraded through.
+                type: object
+                required:
+                - name
+                properties:
+                  name:
+                    description: |-
+                      Name of an existing, unpaused MachineConfigPool that is not a target pool
+                      and whose nodeSelector.matchLabels select every target node (for example
+                      node-role.kubernetes.io/worker: ""). During a run the operator keeps those
+                      of its matchExpressions that every target node satisfies and adds
+                      'mutexrule.nodeupgrade.redhat-na-ssa.github.io/release In (<SHA-1 of
+                      namespace/name>)', so it selects only the nodes the run has released and
+                      the nodes that were in it before the run; the original expressions are
+                      restored afterwards. Its matchLabels and kept expressions must not select a node
+                      outside the canary and the target pools: no node of another custom pool,
+                      of the master pool or, when worker is not a target pool, of the worker
+                      pool. It must not be paused or re-pointed by another MutexRunConfig.
+                    type: string
+                    minLength: 1
+                    maxLength: 253
+              mutexRules:
+                description: |-
+                  MutexRules whose Jobs run for every target node, one after another in this
+                  order. Each needs ValidConfig=True.
+                type: array
+                minItems: 1
+                maxItems: 64
+                items:
+                  type: object
+                  required:
+                  - name
+                  properties:
+                    name:
+                      description: |-
+                        Name of an existing MutexRule. Must not contain '.', because the rule
+                        is tracked with the node label
+                        mutexrule.nodeupgrade.redhat-na-ssa.github.io/<name>.<namespace>.
+                      type: string
+                      minLength: 1
+                      maxLength: 61
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                    namespace:
+                      description: |-
+                        Namespace of the MutexRule. Defaults to the namespace of the
+                        MutexRunConfig. When the operator runs in a namespace (POD_NAMESPACE),
+                        it must be that namespace, so it is best left out.
+                      type: string
+                      minLength: 1
+                      maxLength: 63
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                  x-kubernetes-validations:
+                  - rule: '!has(self.__namespace__) || size(self.name) + size(self.__namespace__) <= 62'
+                    message: >-
+                      '<name>.<namespace>' must be at most 63 characters: it is the name part
+                      of the node label mutexrule.nodeupgrade.redhat-na-ssa.github.io/<name>.<namespace>
+              mutexTargets:
+                description: |-
+                  MutexTargets whose nodes are upgraded one at a time. Each needs
+                  ValidConfig=True, NodeListGathered=True and a non-empty status.nodes.
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required:
+                  - name
+                  properties:
+                    name:
+                      description: Name of an existing MutexTarget.
+                      type: string
+                      minLength: 1
+                      maxLength: 253
+                    namespace:
+                      description: |-
+                        Namespace of the MutexTarget. Defaults to the namespace of the
+                        MutexRunConfig. When the operator runs in a namespace (POD_NAMESPACE),
+                        it must be that namespace, so it is best left out.
+                      type: string
+                      minLength: 1
+                      maxLength: 63
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+          status:
+            description: |-
+              Status defines the observed state of MutexRunConfig. Written by the operator, one
+              condition per step: ConfigValidated, ClusterStateValidated, UpgradeChecked,
+              NodeVersionsKnown, UpgradeAvailable, UpgradeReady, TargetPoolsPaused,
+              MutexRulesApplied, MCPUpdated, JobRun, NodeUpgrade, Degraded, and Reconciled
+              (False/NamespaceNotAllowed outside the namespace of the operator). See the
+              operator documentation for every reason.
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+            properties:
+              conditions:
+                description: Conditions, at most one per type, merged by type on every reconcile.
+                type: array
+                items:
+                  type: object
+                  properties:
+                    lastTransitionTime:
+                      description: RFC 3339 UTC time (YYYY-MM-DDTHH:MM:SSZ) at which status, reason or message last changed.
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      description: True, False or Unknown.
+                      type: string
+                    type:
+                      type: string
+    served: true
+    storage: true
+    subresources:
+      status: {}

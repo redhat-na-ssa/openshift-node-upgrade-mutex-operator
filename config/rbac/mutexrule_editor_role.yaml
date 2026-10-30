@@ -1,0 +1,40 @@
+# Helper ClusterRole for people who create and edit mutexrules. It is not
+# used by the operator, is not listed in config/rbac/kustomization.yaml and
+# is not shipped in the bundle; bind it with a RoleBinding in the operator
+# namespace if you want it.
+# It deliberately has no rbac.authorization.k8s.io/aggregate-to-admin or
+# aggregate-to-edit label: write access to these resources in the operator
+# namespace lets a user pause MachineConfigPools, relabel nodes and run Jobs
+# with any ServiceAccount, so it must be granted explicitly. (OLM still
+# creates its own aggregated roles for owned CRDs; the operator ignores CRs
+# outside its namespace, see docs/USAGE.md.)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: mutexrule-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: openshift-node-upgrade-mutex-operator
+    app.kubernetes.io/part-of: openshift-node-upgrade-mutex-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: mutexrule-editor-role
+rules:
+- apiGroups:
+  - nodeupgrade.redhat-na-ssa.github.io
+  resources:
+  - mutexrules
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - nodeupgrade.redhat-na-ssa.github.io
+  resources:
+  - mutexrules/status
+  verbs:
+  - get

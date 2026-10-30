@@ -1,0 +1,27 @@
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin
+
+# editor and IDE paraphernalia
+.idea
+*.swp
+*.swo
+*~
+.vscode/
+
+# ansible
+.ansible/
+
+# Generated bundles (make bundle writes bundles/<version>/, including its
+# bundle.Dockerfile) and operator-sdk's default output locations
+bundles/
+/bundle/
+/bundle.Dockerfile
+
+# Partial catalog renders
+*.tmp

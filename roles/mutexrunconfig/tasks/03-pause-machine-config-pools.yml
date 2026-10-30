@@ -1,0 +1,50 @@
+---
+# Pauses the target MachineConfigPools and marks each with the paused-by
+# annotation. Only pools marked by this MutexRunConfig are unpaused later
+# (08-restore.yml). A pool an administrator paused already is left as it is:
+# it is paused, which is all the run needs, and the operator will not unpause
+# it.
+- name: Pool Modification Block
+  block:
+    - name: Pause Pools
+      kubernetes.core.k8s:
+        state: patched
+        merge_type: merge
+        api_version: "machineconfiguration.openshift.io/v1"
+        kind: MachineConfigPool
+        name: "{{ item.item }}"
+        definition:
+          metadata:
+            annotations:
+              nodeupgrade.redhat-na-ssa.github.io/paused-by: "{{ mutexrunconfig_owner }}"
+          spec:
+            paused: true
+      loop: "{{ mutexrunconfig_target_pools.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: not (item.resources[0].spec.paused | default(false) | bool)
+
+    - name: Set Machine Config Pools Paused
+      ansible.builtin.set_fact:
+        TargetPoolsPaused: true
+
+  rescue:
+    - name: Set Machine Config Pools Paused
+      ansible.builtin.set_fact:
+        TargetPoolsPaused: false
+        mutexrunconfig_failure: "TargetPoolsPaused: {{ mutexrunconfig_failed_msg }}"
+
+    - name: Report Not Paused
+      operator_sdk.util.k8s_status:
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: TargetPoolsPaused
+            status: "False"
+            reason: "NotPaused"
+            message: >-
+              The target Machine Config Pools could not all be paused:
+              {{ mutexrunconfig_failed_msg | truncate(900) }}
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
